@@ -1,0 +1,8 @@
+{
+  "jean": {
+    "username": "jean",
+    "full_name": "jeanclaude",
+    "salt": "66606537159a3d92584ecffd8695d656",
+    "password_hash": "4efc917ac42fb34e302f68e3acddfc992966c95caeb49eda73b1cd5d94eb7364"
+  }
+}

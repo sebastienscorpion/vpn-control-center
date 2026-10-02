@@ -1,0 +1,27 @@
+# ipsec.conf - strongSwan IPsec configuration file
+
+# basic configuration
+
+config setup
+	
+	
+    charondebug="ike 2, knl 2, cfg 2"
+
+conn site-to-site
+    type=tunnel
+    keyexchange=ikev2
+
+    left=192.168.100.3
+    leftid=192.168.100.3
+    leftsubnet=10.10.0.0/24
+
+    right=192.168.100.4
+    rightid=192.168.100.4
+    rightsubnet=10.20.0.0/24
+
+    authby=psk
+
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+
+    auto=start

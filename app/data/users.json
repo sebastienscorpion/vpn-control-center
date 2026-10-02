@@ -4,5 +4,11 @@
     "full_name": "jeanclaude",
     "salt": "66606537159a3d92584ecffd8695d656",
     "password_hash": "4efc917ac42fb34e302f68e3acddfc992966c95caeb49eda73b1cd5d94eb7364"
+  },
+  "string": {
+    "username": "string",
+    "full_name": "",
+    "salt": "634915d65d9028681c36bad025e0850f",
+    "password_hash": "6276c8073e244831db095e994fbed82a4b5423d210f9c0a5f24c3c9295fe3340"
   }
 }

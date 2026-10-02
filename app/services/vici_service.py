@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 import vici
 
 
@@ -15,25 +17,74 @@ class ViciService:
         return [_decode(s) for s in self.session.list_sas()]
 
     def get_status(self, connection_name: str):
-        for entry in self.get_sas():
-            data = entry.get(connection_name)
-            if data is None:
-                continue
-            child_sas = data.get("child-sas", {})
-            child_state = "DOWN"
-            if child_sas:
-                child_state = next(iter(child_sas.values()), {}).get("state", "UNKNOWN")
+        ike_sas = [
+            entry[connection_name]
+            for entry in self.get_sas()
+            if connection_name in entry
+        ]
+        if not ike_sas:
             return {
                 "connection": connection_name,
-                "ike_sa_state": data.get("state", "UNKNOWN"),
-                "child_sa_state": child_state,
-                "local_host": data.get("local-host"),
-                "remote_host": data.get("remote-host"),
-                "established_seconds": data.get("established"),
+                "ike_sa_state": "DOWN",
+                "child_sa_state": "DOWN",
+                "local_host": None,
+                "remote_host": None,
+                "established_seconds": None,
+                "started_at": None,
+                "started_at_estimated": False,
+                "packets_in": 0,
+                "packets_out": 0,
+                "bytes_in": 0,
+                "bytes_out": 0,
+                "ike_sas": [],
+                "child_sas": [],
             }
+
+        child_sas = [
+            {"name": name, **details}
+            for ike_sa in ike_sas
+            for name, details in ike_sa.get("child-sas", {}).items()
+        ]
+        durations = [
+            _number(ike_sa["established"])
+            for ike_sa in ike_sas
+            if _number(ike_sa.get("established")) is not None
+        ]
+        established_seconds = max(durations) if durations else None
+        started_at = None
+        if established_seconds is not None:
+            started_at = (
+                datetime.now(timezone.utc) - timedelta(seconds=established_seconds)
+            ).isoformat()
+
+        def total(field: str) -> int:
+            return sum(
+                _number(child_sa.get(field)) or 0
+                for child_sa in child_sas
+            )
+
+        child_states = [sa.get("state") for sa in child_sas]
+        child_state = next(
+            (state for state in child_states if state == "INSTALLED"),
+            child_states[0] if child_states else "DOWN",
+        )
+        primary_ike_sa = ike_sas[0]
+
         return {
-            "connection": connection_name, "ike_sa_state": "DOWN", "child_sa_state": "DOWN",
-            "local_host": None, "remote_host": None, "established_seconds": None,
+            "connection": connection_name,
+            "ike_sa_state": primary_ike_sa.get("state", "UNKNOWN"),
+            "child_sa_state": child_state,
+            "local_host": primary_ike_sa.get("local-host"),
+            "remote_host": primary_ike_sa.get("remote-host"),
+            "established_seconds": established_seconds,
+            "started_at": started_at,
+            "started_at_estimated": started_at is not None,
+            "packets_in": total("packets-in"),
+            "packets_out": total("packets-out"),
+            "bytes_in": total("bytes-in"),
+            "bytes_out": total("bytes-out"),
+            "ike_sas": ike_sas,
+            "child_sas": child_sas,
         }
 
     def get_overview(self):
@@ -53,6 +104,14 @@ class ViciService:
                 "active": live["ike_sa_state"] == "ESTABLISHED",
                 "local_host": live["local_host"],
                 "remote_host": live["remote_host"],
+                "established_seconds": live["established_seconds"],
+                "started_at": live["started_at"],
+                "started_at_estimated": live["started_at_estimated"],
+                "packets_in": live["packets_in"],
+                "packets_out": live["packets_out"],
+                "bytes_in": live["bytes_in"],
+                "bytes_out": live["bytes_out"],
+                "child_sas": live["child_sas"],
             })
         return overview
 
@@ -206,3 +265,16 @@ def _decode(value):
     if isinstance(value, list):
         return [_decode(v) for v in value]
     return value
+
+
+def _number(value):
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return value
+    if isinstance(value, str):
+        try:
+            return float(value) if "." in value else int(value)
+        except ValueError:
+            return None
+    return None

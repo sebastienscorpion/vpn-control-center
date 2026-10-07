@@ -1,7 +1,15 @@
+import io
+import socket
 import unittest
 from pathlib import PurePosixPath
 
-from app.services.ssh_service import SSHClientFactory, SSHService
+import paramiko
+
+from app.services.ssh_service import (
+    SSHClientFactory,
+    SSHCommandError,
+    SSHService,
+)
 
 
 class FakeSSHClient:
@@ -126,12 +134,62 @@ class SSHServiceTest(unittest.TestCase):
         self.assertEqual(info["mode"], "100644")
         self.assertEqual(info["size"], 12)
 
+    def test_private_key_content_is_accepted(self):
+        key = paramiko.RSAKey.generate(2048)
+        private_key = io.StringIO()
+        key.write_private_key(private_key)
+
+        client = FakeSSHClient()
+        service = SSHService(client_factory=lambda *args, **kwargs: client)
+
+        result = service.execute_command(
+            host="192.168.1.10",
+            username="alice",
+            private_key=private_key.getvalue(),
+            command="uname -a",
+        )
+
+        self.assertEqual(result["exit_code"], 0)
+        self.assertIsNotNone(client.connect_kwargs["pkey"])
+
+    def test_execute_command_reports_socket_timeout(self):
+        class TimeoutClient:
+            def connect(self, **kwargs):
+                pass
+
+            def exec_command(self, command, timeout=None, get_pty=False):
+                raise socket.timeout("SSH output read timed out")
+
+            def close(self):
+                pass
+
+        service = SSHService(client_factory=lambda *args, **kwargs: TimeoutClient())
+
+        with self.assertRaisesRegex(SSHCommandError, "SSH output read timed out"):
+            service.execute_command(
+                host="192.168.1.10",
+                username="alice",
+                password="secret",
+                command="ipsec statusall",
+                command_timeout=30,
+            )
+
     def test_factory_uses_key_authentication_when_requested(self):
         factory = SSHClientFactory(allow_unknown_hosts=True)
         fake_client = factory._create_client()
 
         self.assertTrue(hasattr(fake_client, "load_system_host_keys"))
         self.assertEqual(factory.allow_unknown_hosts, True)
+
+
+class SSHApiContractTest(unittest.TestCase):
+    def test_only_connect_endpoint_exists(self):
+        from app.main import app
+
+        paths = sorted(app.openapi()["paths"])
+        ssh_paths = [path for path in paths if path.startswith("/api/ssh/")]
+
+        self.assertEqual(ssh_paths, ["/api/ssh/connect"])
 
 
 if __name__ == "__main__":

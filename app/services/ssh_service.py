@@ -3,7 +3,6 @@ from __future__ import annotations
 import io
 import os
 from dataclasses import dataclass
-from pathlib import PurePosixPath
 from typing import Any, Callable, Optional
 
 import paramiko
@@ -49,8 +48,13 @@ class SSHConnectionConfig:
             raise ValueError("Un mot de passe ou une clé privée SSH est requis.")
         if not 1 <= self.port <= 65535:
             raise ValueError("Le port SSH doit être compris entre 1 et 65535.")
-        if self.private_key and not os.path.exists(self.private_key):
-            raise ValueError(f"La clé privée SSH est introuvable : {self.private_key}")
+        if self.private_key and not self._is_private_key_content(self.private_key):
+            if not os.path.exists(self.private_key):
+                raise ValueError(f"La clé privée SSH est introuvable : {self.private_key}")
+
+    @staticmethod
+    def _is_private_key_content(value: str) -> bool:
+        return value.lstrip().startswith("-----BEGIN ") and "PRIVATE KEY-----" in value
 
 
 class SSHClientFactory:
@@ -107,15 +111,19 @@ class SSHService:
         if not config.private_key:
             return None
         try:
-            key = paramiko.RSAKey.from_private_key_file(
+            if SSHConnectionConfig._is_private_key_content(config.private_key):
+                return paramiko.RSAKey.from_private_key(
+                    io.StringIO(config.private_key),
+                    password=config.private_key_passphrase,
+                )
+            return paramiko.RSAKey.from_private_key_file(
                 config.private_key,
                 password=config.private_key_passphrase,
             )
-        except (IOError, ValueError, paramiko.PasswordRequiredException) as exc:
+        except (IOError, ValueError, TypeError, paramiko.PasswordRequiredException) as exc:
             raise SSHAuthenticationError(
                 f"Clé privée SSH invalide ou protégée par un mot de passe : {exc}"
             ) from exc
-        return key
 
     def execute_command(
         self,
@@ -149,7 +157,7 @@ class SSHService:
             stdin, stdout, stderr = client.exec_command(
                 command,
                 timeout=config.command_timeout,
-                get_pty=False,
+                get_pty=True,
             )
             stdout_data = stdout.read().decode(errors="replace")
             stderr_data = stderr.read().decode(errors="replace")
@@ -164,7 +172,7 @@ class SSHService:
                 "stderr": stderr_data,
                 "duration_seconds": None,
             }
-        except (SSHConnectionError, paramiko.SSHException) as exc:
+        except (SSHConnectionError, paramiko.SSHException, TimeoutError, OSError) as exc:
             raise SSHCommandError(f"Échec de l'exécution de la commande : {exc}") from exc
         finally:
             client.close()

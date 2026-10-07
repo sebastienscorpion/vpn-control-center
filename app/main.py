@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.config import router as config_router
 from app.api.connection import router as connection_router
+from app.api.ssh import router as ssh_router
 
 
 tags_metadata = [
@@ -40,6 +41,7 @@ app.add_middleware(
 
 app.include_router(config_router)
 app.include_router(connection_router)
+app.include_router(ssh_router)
 
 
 # ============================================================
